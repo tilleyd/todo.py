@@ -1,9 +1,18 @@
-# ✅ Todo
+# ✅ todo.py
 
-Inspired by todo.txt and Emacs org-mode, Todo is a simple CLI utility to manage
-your todo lists in a series of plaintext files.
+Inspired by todo.txt and Emacs org-mode, `todo.py` is a simple CLI utility to
+manage your todo lists in a series of plaintext files.
 
-[[toc]]
+* [Installation](#installation)
+* [Usage](#usage)
+* [File Format](#file-format)
+  * [Tasks](#tasks)
+  * [Scheduled](#scheduled)
+  * [Deadline](#deadline)
+  * [Priority](#priority)
+  * [Notes](#notes)
+  * [Checklists](#checklists)
+  * [Repeats](#repeats)
 
 ## Installation
 
@@ -11,6 +20,7 @@ Simply copy the `todo.py` file somewhere safe, e.g. for system-wide
 installation:
 
 ```bash
+git clone git://github.com/tilleyd/todo.py
 sudo cp todo.py /usr/local/bin/
 ```
 
