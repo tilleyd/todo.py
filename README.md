@@ -22,34 +22,67 @@ alias t='/usr/local/bin/todo.py'
 
 ## Usage
 
-Add a new item to the file `category.txt`:
+The application does not automatically modify the todo files in any way. You are
+expected to manually edit them using the defined [file format](#file-format).
 
-```
-t a <category> <task...>
-```
+Each category (e.g. `personal` and `work`) is located in its own `.td` file in
+the todo directory. By default this will be `~/.todo`, but it can be set with
+the `TODO_DIRECTORY` environment variable.
 
-List the entries from the file `category.txt`:
+To edit a file, you can either directly edit the files, or use
 
-```
-t ls <category>
-```
-
-Open the file `category.txt` for viewing and editing:
-
-```
+```bash
 t o <category>
 ```
 
-This will first display the entries from the category and present a prompt to
-work with entries. The prompt will allow you to modify, add or remove, schedule,
-set the states of entries, and more.
+to open the file `category.td` with the editor set by the `EDITOR` environment variable.
+
+You can list all entries for a category:
+
+```bash
+t ls <category>
+```
+
+or list all entries:
+
+```bash
+t ls
+```
+
+The core feature of `todo.py` is the agenda view. You can see today's agenda
+with
+
+```bash
+t a
+```
+
+or a specific date's with
+
+```bash
+t a "dd Mmm YYYY" # e.g. t a "5 Sep 2021"
+```
+
+or a date relative to today with
+
+```bash
+t a <int> # e.g. t a 1, or t a -2
+```
 
 ## File Format
+
+### Tasks
+
+Each task starts with a state, and is followed by a summary, all on a single
+line. Valid states are `DOING`, `NEXT`, `TODO`, `EVENT`, `WAITING`, `HELD`,
+`BACKLOG`, `DONE`, and `CANCELLED`. A most basic setup will only need `TODO` and
+`DONE`.
+
+Empty lines and lines that don't start with a state or a `*` are ignored.
 
 ### Scheduled
 
 A task can be scheduled by giving it a date. This allows it to appear in the
-agenda view.
+agenda view for that day.
 
 ```
 TODO A scheduled task
@@ -62,24 +95,20 @@ The time is optional:
 * SCHEDULED: 4 May 2021
 ```
 
-And the time can also be given a range:
-
-```
-* SCHEDULED: 4 May 2021 09:00-11:30
-```
-
-This is the only date format supported, since it is very readable and
-simplifies the implementation considerably.
+The only supported date formats are `%d %b %Y` and `%d %B %Y` (e.g. `1 Dec 2021`
+or `01 December 2021`).
 
 ### Deadline
 
 A task can be given a deadline. A task with a deadline will start appearing in
-the agenda 3 days before the deadline.
+the agenda 7 days before the deadline.
 
 ```
 TODO A task with a deadline
 * DEADLINE: 4 May 2021
 ```
+
+The date format is similar to that of the schedule.
 
 ### Priority
 
@@ -114,5 +143,28 @@ TODO A piecewise task
 ```
 
 Note that currently a space in the unfinished `[]` is unsupported. Checklists
-are simply there for indication, and doesn't do any automagic with the item
-state if you finish all items.
+are simply there for indication, and don't affect the state of the item in any
+way.
+
+### Repeats
+
+A task can be repeated by adding a repeat modifier to a scheduled date:
+
+```
+TODO A repeated task
+* SCHEDULED: 1 May 2021 +2w
+```
+
+The example above will repeat every 2 weeks. Valid repeat periods are `d`, `w`,
+`m`, and `y`, for daily, weekly, monthly, and yearly repeats, respectively.
+
+In order to mark a repeated task as done, you must add a `repeated` property
+indicating the last repeated date, rather than changing the state to done. The
+task will be shown as done in the agenda on any days on or before the last
+repeated date.
+
+```
+TODO A repeated task
+* SCHEDULED: 1 May 2021 +2w
+* REPEATED: 15 May 2021
+```

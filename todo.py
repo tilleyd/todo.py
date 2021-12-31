@@ -4,6 +4,7 @@ import os
 import sys
 import subprocess
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from typing import List, Optional, Dict, Tuple
 from enum import Enum, auto
 
@@ -11,6 +12,7 @@ class State(Enum):
     DOING = "DOING"
     NEXT = "NEXT"
     TODO = "TODO"
+    EVENT = "EVENT"
     WAITING = "WAITING"
     HELD = "HELD"
     BACKLOG = "BACKLOG"
@@ -78,22 +80,38 @@ class CheckItem:
         self.task = task
 
 
+class RepeatType(Enum):
+    DAILY = "d"
+    WEEKLY = "w"
+    MONTHLY = "m"
+    YEARLY = "y"
+
+
+class Repeat:
+    period: RepeatType
+    every: int
+
+    def __init__(self, period: RepeatType, every: int):
+        self.period = period
+        self.every = every
+
+
 class Item:
     state: State
     summary: str
     scheduled: Optional[datetime] = None
     deadline: Optional[datetime] = None
+    repeat: Optional[Repeat] = None
+    repeated: Optional[datetime] = None
     priority: Optional[int] = None
     notes: List[str]
     checklist: List[CheckItem]
-    repeats: List[str]
 
     def __init__(self, state: State, summary: str):
         self.state = state
         self.summary = summary
         self.notes = []
         self.checklist = []
-        self.repeats = []
 
 
 def c(text: str, fg: Color, bg: Color = Color.NONE):
@@ -180,6 +198,28 @@ def same_day(date1: datetime, date2: datetime):
     )
 
 
+def repeats_on(item: Item, date: datetime):
+    if item.scheduled is None or item.repeat is None:
+        return False
+
+    if item.repeat.period == RepeatType.DAILY:
+        delta = relativedelta(days=item.repeat.every)
+    elif item.repeat.period == RepeatType.WEEKLY:
+        delta = relativedelta(weeks=item.repeat.every)
+    elif item.repeat.period == RepeatType.MONTHLY:
+        delta = relativedelta(months=item.repeat.every)
+    elif item.repeat.period == RepeatType.YEARLY:
+        delta = relativedelta(years=item.repeat.every)
+
+    cast = item.scheduled
+    while (cast <= date):
+        if same_day(cast, date):
+            return True
+        else:
+            cast = cast + delta
+    return False
+
+
 def parse_file(filepath: str) -> List[Item]:
     items: List[Item] = []
     item: Optional[Item] = None
@@ -209,6 +249,19 @@ def parse_file(filepath: str) -> List[Item]:
                 value = " ".join(tokens[2:])
                 
                 if key == "scheduled:":
+                    ridx = value.find("+")
+                    if ridx >= 0:
+                        # has a repeat
+                        repeat = value[ridx + 1:].strip()
+                        value = value[:ridx].strip()
+
+                        try:
+                            period = RepeatType(repeat[-1])
+                            every = int(repeat[:-1])
+                            item.repeat = Repeat(period, every)
+                        except ValueError:
+                            print(f"WARN: Invalid repeat '{repeat}'")
+                        
                     try:
                         item.scheduled = parse_absolute_date(value)
                     except ValueError:
@@ -226,8 +279,11 @@ def parse_file(filepath: str) -> List[Item]:
                     except ValueError:
                         print(f"WARN: Invalid priority '{value}'")
 
-                elif key == "repeat:":
-                    item.repeats.append(value)
+                elif key == "repeated:":
+                    try:
+                        item.repeated = parse_absolute_date(value)
+                    except ValueError:
+                        print(f"WARN: Invalid repeated date '{value}'")
 
                 elif key == "note:":
                     item.notes.append(value)
@@ -261,7 +317,7 @@ def display_item(item: Item, short: bool = False, ignore_dates: bool = False):
     summary_color = Color.NONE
     if item.state in [State.DOING, State.NEXT]:
         token_color = Color.GREEN
-    elif item.state in [State.TODO]:
+    elif item.state in [State.TODO, State.EVENT]:
         token_color = Color.YELLOW
     elif item.state in [State.WAITING, State.HELD]:
         token_color = Color.RED
@@ -287,6 +343,12 @@ def display_item(item: Item, short: bool = False, ignore_dates: bool = False):
 
     if item.scheduled is not None and not ignore_dates:
         print(f"  Scheduled {fmt_relative_date(item.scheduled)}")
+
+    if item.repeat is not None:
+        print(f"  Repeats +{item.repeat.every} {item.repeat.period.name.lower()}", end="")
+        if item.repeated is not None:
+            print(f" (last repeated {fmt_relative_date(item.repeated)})", end="")
+        print()
 
     if item.deadline is not None and not ignore_dates:
         print(f"  Due {fmt_relative_date(item.deadline)}")
@@ -315,8 +377,16 @@ def display_agenda(items: Dict[str, List[Item]], date: Optional[datetime] = None
         for item in cat_items:
 
             if item.scheduled is not None:
-                if same_day(item.scheduled, date):
+                if item.repeat is not None:
+                    if repeats_on(item, date):
+                        if item.repeated is not None:
+                            if same_day(item.repeated, date) or item.repeated > date:
+                                item.state = State.DONE
+
+                        scheduled.append((category, item))
+                elif same_day(item.scheduled, date):
                     scheduled.append((category, item))
+
 
             if item.deadline is not None:
                 delta = item.deadline - date
@@ -381,6 +451,7 @@ def main() -> None:
         except FileNotFoundError:
             ans = input(f"Create category {c(category, Color.BLUE)}? Y/N ")
             if ans.lower() == "y":
+                os.makedirs(get_todo_dir(), exist_ok=True)
                 category_file = get_file(category, create=True)
             else:
                 exit(1)
