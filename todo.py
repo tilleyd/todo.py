@@ -100,9 +100,31 @@ def c(text: str, fg: Color, bg: Color = Color.NONE):
     return f"{colors_fg[fg]}{colors_bg[bg]}{text}{colors_reset}"
 
 
-def get_todo_dir():
+def get_todo_dir() -> str:
     fallback = os.path.join(os.environ["HOME"], ".todo")
     return os.environ.get("TODO_DIRECTORY", fallback)
+
+
+def get_file(category: str, create: bool = False) -> str:
+    path = os.path.join(get_todo_dir(), f"{category}.td")
+    if os.path.isfile(path):
+        return path
+    else:
+        if create:
+            with open(path, "w") as fd:
+                pass
+            return path
+        else:
+            raise FileNotFoundError(f"No such category '{category}'")
+
+
+def get_all_categories() -> List[str]:
+    files = os.listdir(get_todo_dir())
+    cats = []
+    for f in files:
+        if f.endswith(".td"):
+            cats.append(f[:-3])
+    return cats
 
 
 def parse_absolute_date(string: str) -> datetime:
@@ -225,11 +247,11 @@ def parse_file(filepath: str) -> List[Item]:
     return items
 
 
-def parse_files(filepaths: List[str]) -> Dict[str, List[Item]]:
+def parse_all() -> Dict[str, List[Item]]:
+    categories = get_all_categories()
     items = {}
-    for filepath in filepaths:
-        file_items = parse_file(filepath)
-        category = filepath[:-4] if filepath.endswith(".txt") else filepath
+    for category in categories:
+        file_items = parse_file(get_file(category))
         items[category] = file_items
     return items
 
@@ -337,21 +359,16 @@ def main() -> None:
             except ValueError as e:
                 print(str(e))
                 exit(1)
-
-        # TODO get all files
-        items = parse_files(["personal.txt"])
-
+        items = parse_all()
         display_agenda(items, date)
 
     elif command in ["list", "ls"]:
         if len(sys.argv) == 3:
             category = sys.argv[2]
-            # TODO check validity of category
-            items = parse_file(f"{category}.txt")
+            items = parse_file(get_file(category))
             display_items(items)
         else:
-            # TODO get all files
-            items = parse_files(["personal.txt"])
+            items = parse_all()
             display_categories(items)
 
     elif command in ["open", "o"]:
@@ -359,8 +376,16 @@ def main() -> None:
             print(f"Usage: {sys.argv[0]} {command} <category>")
             exit(1)
         category = sys.argv[2]
+        try:
+            category_file = get_file(category)
+        except FileNotFoundError:
+            ans = input(f"Create category {c(category, Color.BLUE)}? Y/N ")
+            if ans.lower() == "y":
+                category_file = get_file(category, create=True)
+            else:
+                exit(1)
         editor = os.environ.get("EDITOR", "vim")
-        subprocess.call([editor, f"{category}.txt"])
+        subprocess.call([editor, category_file])
 
     elif command in ["help", "h"]:
         # TODO
