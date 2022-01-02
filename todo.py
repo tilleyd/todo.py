@@ -198,7 +198,29 @@ def same_day(date1: datetime, date2: datetime):
     )
 
 
-def repeats_on(item: Item, date: datetime):
+def next_repeat(item: Item) -> datetime:
+    if item.scheduled is None or item.repeat is None:
+        return False
+
+    if item.repeat.period == RepeatType.DAILY:
+        delta = relativedelta(days=item.repeat.every)
+    elif item.repeat.period == RepeatType.WEEKLY:
+        delta = relativedelta(weeks=item.repeat.every)
+    elif item.repeat.period == RepeatType.MONTHLY:
+        delta = relativedelta(months=item.repeat.every)
+    elif item.repeat.period == RepeatType.YEARLY:
+        delta = relativedelta(years=item.repeat.every)
+
+    if item.repeated is None:
+        return item.scheduled
+
+    cast = item.scheduled
+    while (cast <= item.repeated):
+        cast = cast + delta
+    return cast
+
+
+def repeats_on(item: Item, date: datetime) -> bool:
     if item.scheduled is None or item.repeat is None:
         return False
 
@@ -218,6 +240,10 @@ def repeats_on(item: Item, date: datetime):
         else:
             cast = cast + delta
     return False
+
+
+def is_done(item: Item) -> bool:
+    return item.state in [State.DONE, State.CANCELLED]
 
 
 def parse_file(filepath: str) -> List[Item]:
@@ -341,16 +367,19 @@ def display_item(item: Item, short: bool = False, ignore_dates: bool = False):
         for note in item.notes:
             print(c(f"  - {note}", Color.DIM))
 
-    if item.scheduled is not None and not ignore_dates:
-        print(f"  Scheduled {fmt_relative_date(item.scheduled)}")
+    if ignore_dates:
+        return
 
-    if item.repeat is not None and not ignore_dates:
-        print(f"  Repeats +{item.repeat.every} {item.repeat.period.name.lower()}", end="")
-        if item.repeated is not None:
-            print(f" (last repeated {fmt_relative_date(item.repeated)})", end="")
-        print()
+    if item.scheduled is not None:
+        if item.repeat is not None:
+            next_date = next_repeat(item)
+            print(f"  Repeats {fmt_relative_date(next_date)} (+{item.repeat.every} {item.repeat.period.name.lower()})")
+            if item.repeated is not None:
+                print(f"  Last done {fmt_relative_date(item.repeated)}")
+        else:
+            print(f"  Scheduled {fmt_relative_date(item.scheduled)}")
 
-    if item.deadline is not None and not ignore_dates:
+    if item.deadline is not None:
         print(f"  Due {fmt_relative_date(item.deadline)}")
 
 
@@ -367,31 +396,42 @@ def display_categories(items: Dict[str, List[Item]]):
 
 def display_agenda(items: Dict[str, List[Item]], date: Optional[datetime] = None):
     if date is None:
+        showing_today = True
         date = datetime.now()
+    else:
+        showing_today = False
     print(c(date.strftime('%a %d %b %Y'), Color.BLUE))
 
     scheduled: List[Tuple[str, Item]] = []
     deadlines: List[Tuple[str, Item]] = []
+    overdue: List[Tuple[str, Item]] = []
 
     for category, cat_items in items.items():
         for item in cat_items:
 
             if item.scheduled is not None:
                 if item.repeat is not None:
-                    if repeats_on(item, date):
-                        if item.repeated is not None:
-                            if same_day(item.repeated, date) or item.repeated > date:
-                                item.state = State.DONE
+                    if item.repeated is not None:
+                        if same_day(item.repeated, date) or item.repeated > date:
+                            item.state = State.DONE
 
+                    if repeats_on(item, date):
                         scheduled.append((category, item))
+                    elif not is_done(item) and next_repeat(item) < date:
+                        overdue.append((category, item))
+
                 elif same_day(item.scheduled, date):
                     scheduled.append((category, item))
+                elif not is_done(item) and item.scheduled < date:
+                    overdue.append((category, item))
 
 
             if item.deadline is not None:
                 delta = item.deadline - date
                 if same_day(item.deadline, date) or (delta.days < deadline_warning and delta.days >= 0):
                     deadlines.append((category, item))
+                elif not is_done(item) and item.deadline < date:
+                    overdue.append((category, item))
 
     if len(scheduled) > 0:
         print(f"\n{c('Agenda', Color.YELLOW)}")
@@ -404,6 +444,12 @@ def display_agenda(items: Dict[str, List[Item]], date: Optional[datetime] = None
             display_item(item, ignore_dates=True)
     else:
         print(c("\nNo scheduled items", Color.GREEN))
+
+    if showing_today and len(overdue) > 0:
+        print(f"\n{c('Overdue items', Color.RED)}")
+        for cat, item in overdue:
+            print(c(cat, Color.DIM), end=" ")
+            display_item(item)
 
     if len(deadlines) > 0:
         print(f"\n{c('Upcoming deadlines', Color.YELLOW)}")
