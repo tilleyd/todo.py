@@ -3,6 +3,7 @@
 import os
 import sys
 import subprocess
+import numpy as np
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from typing import List, Optional, Dict, Tuple
@@ -337,13 +338,61 @@ def parse_all() -> List[Item]:
     return items
 
 
+def sort_items(items: List[Item]) -> List[Item]:
+    # separate items into the following strata
+    todo = []
+    scheduled = []
+    priority = []
+    doing = []
+    done = []
+    backlog = []
+
+    for item in items:
+        if is_done(item):  # DONE, CANCELLED
+            done.append(item)
+        elif item.state == State.BACKLOG:
+            backlog.append(item)
+        elif item.state in [State.DOING, State.NEXT]:
+            doing.append(item)
+        elif item.priority is not None:
+            priority.append(item)
+        elif item.scheduled is not None or item.deadline is not None:
+            scheduled.append(item)
+        else:
+            todo.append(item)
+
+    # sort priority items
+    p_ranks = [i.priority for i in priority]
+    priority = [priority[i] for i in np.argsort(p_ranks)]
+
+    # sort todo items according to date
+    s_dates = []
+    for item in scheduled:
+        if item.scheduled is not None:
+            if item.repeat is not None:
+                s_dates.append(next_repeat(item))
+            else:
+                s_dates.append(item.scheduled)
+        else:
+            assert item.deadline is not None
+            s_dates.append(item.deadline)
+    scheduled = [scheduled[i] for i in np.argsort(s_dates)]
+
+    sorted_items = doing
+    sorted_items.extend(priority)
+    sorted_items.extend(scheduled)
+    sorted_items.extend(todo)
+    sorted_items.extend(backlog)
+    sorted_items.extend(done)
+    return sorted_items
+
+
 def display_item(
     item: Item,
     short: bool = False,
     ignore_dates: bool = False,
     ignore_category: bool = False,
 ):
-
     token_color = Color.NONE
     summary_color = Color.NONE
     if item.state in [State.DOING, State.NEXT]:
@@ -361,6 +410,8 @@ def display_item(
     print(c(item.state.value, token_color), end=" ")
     if not ignore_category:
         print(c(item.category, Color.DIM), end=" ")
+    if item.priority is not None:
+        print(c(f"[{item.priority}]", Color.RED), end=" ")
     print(c(item.summary, summary_color))
 
     if short:
@@ -399,11 +450,15 @@ def display_agenda(items: List[Item], date: Optional[datetime] = None):
         showing_today = False
     print(c(date.strftime('%a %d %b %Y'), Color.BLUE))
 
+    doing: List[Item] = []
     scheduled: List[Item] = []
     deadlines: List[Item] = []
     overdue: List[Item] = []
 
     for item in items:
+
+        if item.state in [State.DOING, State.NEXT]:
+            doing.append(item)
 
         if item.scheduled is not None:
             if item.repeat is not None:
@@ -421,13 +476,23 @@ def display_agenda(items: List[Item], date: Optional[datetime] = None):
             elif not is_done(item) and item.scheduled < date:
                 overdue.append(item)
 
-
         if item.deadline is not None:
             delta = item.deadline - date
             if same_day(item.deadline, date) or (delta.days < deadline_warning and delta.days >= 0):
                 deadlines.append(item)
             elif not is_done(item) and item.deadline < date:
                 overdue.append(item)
+    
+    if showing_today:
+        if len(doing) > 0:
+            print(f"\n{c('Active items', Color.YELLOW)}")
+            for item in doing:
+                display_item(item, ignore_dates=True)
+
+        if len(overdue) > 0:
+            print(f"\n{c('Overdue items', Color.RED)}")
+            for item in overdue:
+                display_item(item)
 
     if len(scheduled) > 0:
         print(f"\n{c('Agenda', Color.YELLOW)}")
@@ -440,11 +505,6 @@ def display_agenda(items: List[Item], date: Optional[datetime] = None):
             display_item(item, ignore_dates=True)
     else:
         print(c("\nNo scheduled items", Color.GREEN))
-
-    if showing_today and len(overdue) > 0:
-        print(f"\n{c('Overdue items', Color.RED)}")
-        for item in overdue:
-            display_item(item)
 
     if len(deadlines) > 0:
         print(f"\n{c('Upcoming deadlines', Color.YELLOW)}")
@@ -470,17 +530,17 @@ def main() -> None:
             except ValueError as e:
                 print(str(e))
                 exit(1)
-        items = parse_all()
+        items = sort_items(parse_all())
         display_agenda(items, date)
 
     elif command in ["list", "ls"]:
         if len(sys.argv) == 3:
             category = sys.argv[2]
-            items = parse_category(category)
+            items = sort_items(parse_category(category))
             for item in reversed(items):
                 display_item(item, ignore_category=True)
         else:
-            items = parse_all()
+            items = sort_items(parse_all())
             for item in reversed(items):
                 display_item(item)
 
