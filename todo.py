@@ -97,6 +97,7 @@ class Repeat:
 
 
 class Item:
+    category: str
     state: State
     summary: str
     scheduled: Optional[datetime] = None
@@ -107,7 +108,8 @@ class Item:
     notes: List[str]
     checklist: List[CheckItem]
 
-    def __init__(self, state: State, summary: str):
+    def __init__(self, category: str, state: State, summary: str):
+        self.category = category
         self.state = state
         self.summary = summary
         self.notes = []
@@ -246,9 +248,11 @@ def is_done(item: Item) -> bool:
     return item.state in [State.DONE, State.CANCELLED]
 
 
-def parse_file(filepath: str) -> List[Item]:
+def parse_category(category: str) -> List[Item]:
     items: List[Item] = []
     item: Optional[Item] = None
+
+    filepath = get_file(category)
 
     with open(filepath, "r") as fd:
         for line in fd:
@@ -261,7 +265,7 @@ def parse_file(filepath: str) -> List[Item]:
             try:
                 state = State(tokens[0]) # will except if not a state
                 summary = " ".join(tokens[1:])
-                item = Item(state, summary)
+                item = Item(category, state, summary)
                 items.append(item)
                 continue
             except ValueError:
@@ -321,24 +325,25 @@ def parse_file(filepath: str) -> List[Item]:
                 else:
                     print(f"WARN: Unknown property '{key}'")
 
-    # sort by priority
-    # TODO
-    # sort by state
-    # TODO
-
     return items
 
 
-def parse_all() -> Dict[str, List[Item]]:
+def parse_all() -> List[Item]:
     categories = get_all_categories()
-    items = {}
+    items = []
     for category in categories:
-        file_items = parse_file(get_file(category))
-        items[category] = file_items
+        cat_items = parse_category(category)
+        items.extend(cat_items)
     return items
 
 
-def display_item(item: Item, short: bool = False, ignore_dates: bool = False):
+def display_item(
+    item: Item,
+    short: bool = False,
+    ignore_dates: bool = False,
+    ignore_category: bool = False,
+):
+
     token_color = Color.NONE
     summary_color = Color.NONE
     if item.state in [State.DOING, State.NEXT]:
@@ -353,7 +358,10 @@ def display_item(item: Item, short: bool = False, ignore_dates: bool = False):
     else:
         token_color = Color.DIM
         summary_color = Color.DIM
-    print(f"{c(item.state.value, token_color)} {c(item.summary, summary_color)}")
+    print(c(item.state.value, token_color), end=" ")
+    if not ignore_category:
+        print(c(item.category, Color.DIM), end=" ")
+    print(c(item.summary, summary_color))
 
     if short:
         return
@@ -383,18 +391,7 @@ def display_item(item: Item, short: bool = False, ignore_dates: bool = False):
         print(f"  Due {fmt_relative_date(item.deadline)}")
 
 
-def display_items(items: List[Item]):
-    for item in reversed(items):
-        display_item(item)
-
-
-def display_categories(items: Dict[str, List[Item]]):
-    for cat, cat_items in items.items():
-        print(f"{cat.upper()}\n")
-        display_items(cat_items)
-
-
-def display_agenda(items: Dict[str, List[Item]], date: Optional[datetime] = None):
+def display_agenda(items: List[Item], date: Optional[datetime] = None):
     if date is None:
         showing_today = True
         date = datetime.now()
@@ -402,59 +399,57 @@ def display_agenda(items: Dict[str, List[Item]], date: Optional[datetime] = None
         showing_today = False
     print(c(date.strftime('%a %d %b %Y'), Color.BLUE))
 
-    scheduled: List[Tuple[str, Item]] = []
-    deadlines: List[Tuple[str, Item]] = []
-    overdue: List[Tuple[str, Item]] = []
+    scheduled: List[Item] = []
+    deadlines: List[Item] = []
+    overdue: List[Item] = []
 
-    for category, cat_items in items.items():
-        for item in cat_items:
+    for item in items:
 
-            if item.scheduled is not None:
-                if item.repeat is not None:
-                    if item.repeated is not None:
-                        if same_day(item.repeated, date) or item.repeated > date:
-                            item.state = State.DONE
+        if item.scheduled is not None:
+            if item.repeat is not None:
+                if item.repeated is not None:
+                    if same_day(item.repeated, date) or item.repeated > date:
+                        item.state = State.DONE
 
-                    if repeats_on(item, date):
-                        scheduled.append((category, item))
-                    elif not is_done(item) and next_repeat(item) < date:
-                        overdue.append((category, item))
+                if repeats_on(item, date):
+                    scheduled.append(item)
+                elif not is_done(item) and next_repeat(item) < date:
+                    overdue.append(item)
 
-                elif same_day(item.scheduled, date):
-                    scheduled.append((category, item))
-                elif not is_done(item) and item.scheduled < date:
-                    overdue.append((category, item))
+            elif same_day(item.scheduled, date):
+                scheduled.append(item)
+            elif not is_done(item) and item.scheduled < date:
+                overdue.append(item)
 
 
-            if item.deadline is not None:
-                delta = item.deadline - date
-                if same_day(item.deadline, date) or (delta.days < deadline_warning and delta.days >= 0):
-                    deadlines.append((category, item))
-                elif not is_done(item) and item.deadline < date:
-                    overdue.append((category, item))
+        if item.deadline is not None:
+            delta = item.deadline - date
+            if same_day(item.deadline, date) or (delta.days < deadline_warning and delta.days >= 0):
+                deadlines.append(item)
+            elif not is_done(item) and item.deadline < date:
+                overdue.append(item)
 
     if len(scheduled) > 0:
         print(f"\n{c('Agenda', Color.YELLOW)}")
-        for cat, item in scheduled:
+        for item in scheduled:
             if item.scheduled.hour == 0 and item.scheduled.minute == 0:
                 time = "--:--"
             else:
                 time = item.scheduled.strftime("%H:%M")
-            print(time, c(cat, Color.DIM), end=" ")
+            print(time, end=" ")
             display_item(item, ignore_dates=True)
     else:
         print(c("\nNo scheduled items", Color.GREEN))
 
     if showing_today and len(overdue) > 0:
         print(f"\n{c('Overdue items', Color.RED)}")
-        for cat, item in overdue:
-            print(c(cat, Color.DIM), end=" ")
+        for item in overdue:
             display_item(item)
 
     if len(deadlines) > 0:
         print(f"\n{c('Upcoming deadlines', Color.YELLOW)}")
-        for cat, item in deadlines:
-            print(fmt_relative_date(item.deadline), c(cat, Color.DIM), end=" ")
+        for item in deadlines:
+            print(fmt_relative_date(item.deadline), end=" ")
             display_item(item, ignore_dates=True)
     else:
         print(c("\nNo upcoming deadlines", Color.GREEN))
@@ -481,11 +476,13 @@ def main() -> None:
     elif command in ["list", "ls"]:
         if len(sys.argv) == 3:
             category = sys.argv[2]
-            items = parse_file(get_file(category))
-            display_items(items)
+            items = parse_category(category)
+            for item in reversed(items):
+                display_item(item, ignore_category=True)
         else:
             items = parse_all()
-            display_categories(items)
+            for item in reversed(items):
+                display_item(item)
 
     elif command in ["open", "o"]:
         if len(sys.argv) < 3:
