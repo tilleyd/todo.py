@@ -87,6 +87,11 @@ line. Valid states are `DOING`, `NEXT`, `TODO`, `EVENT`, `WAITING`, `HELD`,
 `BACKLOG`, `DONE`, and `CANCELLED`. A most basic setup will only need `TODO` and
 `DONE`.
 
+The `DONE` and `CANCELLED` states are considered as "done" and are displayed
+last when listing items. The `DOING` and `NEXT` states are used as "sticky"
+items, allowing these items to always appear in the agenda, even if they aren't
+scheduled for that date.
+
 Empty lines and lines that don't start with a state or a `*` are ignored.
 
 ### Scheduled
