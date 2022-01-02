@@ -344,7 +344,7 @@ def display_item(item: Item, short: bool = False, ignore_dates: bool = False):
     if item.scheduled is not None and not ignore_dates:
         print(f"  Scheduled {fmt_relative_date(item.scheduled)}")
 
-    if item.repeat is not None:
+    if item.repeat is not None and not ignore_dates:
         print(f"  Repeats +{item.repeat.every} {item.repeat.period.name.lower()}", end="")
         if item.repeated is not None:
             print(f" (last repeated {fmt_relative_date(item.repeated)})", end="")
@@ -390,7 +390,7 @@ def display_agenda(items: Dict[str, List[Item]], date: Optional[datetime] = None
 
             if item.deadline is not None:
                 delta = item.deadline - date
-                if delta.days < deadline_warning and delta.days >= 0:
+                if same_day(item.deadline, date) or (delta.days < deadline_warning and delta.days >= 0):
                     deadlines.append((category, item))
 
     if len(scheduled) > 0:
@@ -409,7 +409,7 @@ def display_agenda(items: Dict[str, List[Item]], date: Optional[datetime] = None
         print(f"\n{c('Upcoming deadlines', Color.YELLOW)}")
         for cat, item in deadlines:
             print(fmt_relative_date(item.deadline), c(cat, Color.DIM), end=" ")
-            display_item(item, short=True)
+            display_item(item, ignore_dates=True)
     else:
         print(c("\nNo upcoming deadlines", Color.GREEN))
 
