@@ -324,7 +324,7 @@ def parse_category(category: str) -> List[Item]:
                     item.checklist.append(ci)
 
                 else:
-                    print(f"WARN: Unknown property '{key}'")
+                    print(f"WARN: Unknown property '{key}' in category '{category}'")
 
     return items
 
