@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 
 import os
-import sys
 import subprocess
-import numpy as np
+import sys
 from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
-from typing import List, Optional, Dict, Tuple
 from enum import Enum, auto
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+from dateutil.relativedelta import relativedelta
+
 
 class State(Enum):
     DOING = "DOING"
@@ -63,10 +65,10 @@ colors_bg = {
 colors_reset = "\033[00m"
 
 date_formats = [
-    "%d %b %Y", # 1 Jan 2021
-    "%d %B %Y", # 1 January 2021
-    "%d %b %Y %H:%M", # 1 Jan 2021 09:00
-    "%d %B %Y %H:%M", # 1 January 2021 09:00
+    "%d %b %Y",  # 1 Jan 2021
+    "%d %B %Y",  # 1 January 2021
+    "%d %b %Y %H:%M",  # 1 Jan 2021 09:00
+    "%d %B %Y %H:%M",  # 1 January 2021 09:00
 ]
 
 deadline_warning = 7  # days from deadline
@@ -203,7 +205,7 @@ def same_day(date1: datetime, date2: datetime):
 
 def next_repeat(item: Item) -> datetime:
     if item.scheduled is None or item.repeat is None:
-        return False
+        raise Exception("Item has no repeat")
 
     if item.repeat.period == RepeatType.DAILY:
         delta = relativedelta(days=item.repeat.every)
@@ -213,12 +215,14 @@ def next_repeat(item: Item) -> datetime:
         delta = relativedelta(months=item.repeat.every)
     elif item.repeat.period == RepeatType.YEARLY:
         delta = relativedelta(years=item.repeat.every)
+    else:
+        raise Exception("Invalid repeat type")
 
     if item.repeated is None:
         return item.scheduled
 
     cast = item.scheduled
-    while (cast <= item.repeated):
+    while cast <= item.repeated:
         cast = cast + delta
     return cast
 
@@ -235,9 +239,11 @@ def repeats_on(item: Item, date: datetime) -> bool:
         delta = relativedelta(months=item.repeat.every)
     elif item.repeat.period == RepeatType.YEARLY:
         delta = relativedelta(years=item.repeat.every)
+    else:
+        raise Exception("Invalid repeat type")
 
     cast = item.scheduled
-    while (cast <= date):
+    while cast <= date:
         if same_day(cast, date):
             return True
         else:
@@ -264,7 +270,7 @@ def parse_category(category: str) -> List[Item]:
             tokens = line.split()
 
             try:
-                state = State(tokens[0]) # will except if not a state
+                state = State(tokens[0])  # will except if not a state
                 summary = " ".join(tokens[1:])
                 item = Item(category, state, summary)
                 items.append(item)
@@ -273,17 +279,17 @@ def parse_category(category: str) -> List[Item]:
                 if tokens[0] != "*" or item is None:
                     continue
 
-                if (len(tokens) < 2):
+                if len(tokens) < 2:
                     continue
 
                 key = tokens[1].lower()
                 value = " ".join(tokens[2:])
-                
+
                 if key == "scheduled:":
                     ridx = value.find("+")
                     if ridx >= 0:
                         # has a repeat
-                        repeat = value[ridx + 1:].strip()
+                        repeat = value[ridx + 1 :].strip()
                         value = value[:ridx].strip()
 
                         try:
@@ -292,7 +298,7 @@ def parse_category(category: str) -> List[Item]:
                             item.repeat = Repeat(period, every)
                         except ValueError:
                             print(f"WARN: Invalid repeat '{repeat}'")
-                        
+
                     try:
                         item.scheduled = parse_absolute_date(value)
                     except ValueError:
@@ -432,7 +438,9 @@ def display_item(
     if item.scheduled is not None:
         if item.repeat is not None:
             next_date = next_repeat(item)
-            print(f"  Repeats {fmt_relative_date(next_date)} (+{item.repeat.every} {item.repeat.period.name.lower()})")
+            print(
+                f"  Repeats {fmt_relative_date(next_date)} (+{item.repeat.every} {item.repeat.period.name.lower()})"
+            )
             if item.repeated is not None:
                 print(f"  Last done {fmt_relative_date(item.repeated)}")
         else:
@@ -448,7 +456,7 @@ def display_agenda(items: List[Item], date: Optional[datetime] = None):
         date = datetime.now()
     else:
         showing_today = False
-    print(c(date.strftime('%a %d %b %Y'), Color.BLUE))
+    print(c(date.strftime("%a %d %b %Y"), Color.BLUE))
 
     doing: List[Item] = []
     scheduled: List[Item] = []
@@ -478,11 +486,13 @@ def display_agenda(items: List[Item], date: Optional[datetime] = None):
 
         if item.deadline is not None:
             delta = item.deadline - date
-            if same_day(item.deadline, date) or (delta.days < deadline_warning and delta.days >= 0):
+            if same_day(item.deadline, date) or (
+                delta.days < deadline_warning and delta.days >= 0
+            ):
                 deadlines.append(item)
             elif not is_done(item) and item.deadline < date:
                 overdue.append(item)
-    
+
     if showing_today:
         if len(doing) > 0:
             print(f"\n{c('Active items', Color.YELLOW)}")
@@ -497,6 +507,7 @@ def display_agenda(items: List[Item], date: Optional[datetime] = None):
     if len(scheduled) > 0:
         print(f"\n{c('Agenda', Color.YELLOW)}")
         for item in scheduled:
+            assert item.scheduled is not None
             if item.scheduled.hour == 0 and item.scheduled.minute == 0:
                 time = "--:--"
             else:
@@ -509,10 +520,12 @@ def display_agenda(items: List[Item], date: Optional[datetime] = None):
     if len(deadlines) > 0:
         print(f"\n{c('Upcoming deadlines', Color.YELLOW)}")
         for item in deadlines:
+            assert item.deadline is not None
             print(fmt_relative_date(item.deadline), end=" ")
             display_item(item, ignore_dates=True)
     else:
         print(c("\nNo upcoming deadlines", Color.GREEN))
+
 
 def main() -> None:
     if len(sys.argv) < 2:
